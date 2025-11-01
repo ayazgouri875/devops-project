@@ -1,480 +1,575 @@
+// ============================
+// ✅ API URLS
+// ============================
+const API_BASE = "https://99x9kefd8f.execute-api.ap-south-1.amazonaws.com/prod";
+const GEMINI_API_KEY = "AIzaSyAP7JtEmTvQ9UkUu4q0jSHEg6R6o6XorOU"; 
+const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${GEMINI_API_KEY}`;
 
-// Sample data
-let inventory = [
-    { id: 1, name: 'Laptop Computer', sku: 'LAP001', quantity: 25, location: 'A1-B2' },
-    { id: 2, name: 'Office Chair', sku: 'CHR001', quantity: 15, location: 'B2-C3' },
-    { id: 3, name: 'Desk Lamp', sku: 'LMP001', quantity: 8, location: 'C1-A2' },
-    { id: 4, name: 'Monitor', sku: 'MON001', quantity: 12, location: 'A2-B1' },
-    { id: 5, name: 'Keyboard', sku: 'KEY001', quantity: 30, location: 'C2-A3' }
-];
+// ============================
+// ✅ NEW: COGNITO CONFIG
+// ============================
+// These are your IDs from the AWS Cognito User Pool.
+const cognitoConfig = {
+    UserPoolId: 'ap-south-1_PSXAa42Xy',
+    ClientId: '7l367m6dbshit1u0u25j4qnmcr',
+};
+const userPool = new AmazonCognitoIdentity.CognitoUserPool(cognitoConfig);
+let cognitoUser;
+let userToken; // This is the JWT token
 
-let orders = [
-    { id: 'ORD001', customer: 'ABC Corp', status: 'Pending', date: '2024-01-15', items: ['Laptop Computer x2', 'Office Chair x1'] },
-    { id: 'ORD002', customer: 'XYZ Ltd', status: 'Shipped', date: '2024-01-14', items: ['Desk Lamp x3'] },
-    { id: 'ORD003', customer: 'Tech Solutions', status: 'Processing', date: '2024-01-13', items: ['Laptop Computer x1', 'Desk Lamp x2'] },
-    { id: 'ORD004', customer: 'Global Inc', status: 'Delivered', date: '2024-01-12', items: ['Monitor x2', 'Keyboard x2'] },
-    { id: 'ORD005', customer: 'StartUp Co', status: 'Pending', date: '2024-01-11', items: ['Office Chair x3'] }
-];
+// ============================
+// ⭐ NEW: Master List for Search
+// ============================
+let allInventoryItems = [];
 
-// DOM elements
-const loginPage = document.getElementById('loginPage');
-const dashboard = document.getElementById('dashboard');
-const loginForm = document.getElementById('loginForm');
-const logoutBtn = document.getElementById('logoutBtn');
-const userDisplay = document.getElementById('userDisplay');
+// ============================
+// NOTIFICATION SYSTEM
+// ============================
+const notification = document.getElementById("notification");
+const notificationMessage = document.getElementById("notificationMessage");
 
-// Initialize the application
-document.addEventListener('DOMContentLoaded', function() {
-    initializeEventListeners();
+function showNotification(message, isError = false) {
+    notificationMessage.textContent = message;
+    if (isError) {
+        notification.classList.remove("bg-green-500");
+        notification.classList.add("bg-red-500");
+    } else {
+        notification.classList.remove("bg-red-500");
+        notification.classList.add("bg-green-500");
+    }
+    notification.classList.remove("hidden");
+    setTimeout(() => notification.classList.add("hidden"), 3000);
+}
+
+// ============================
+// LOGIN / SIGN UP LOGIC (COGNITO)
+// ============================
+const authPage = document.getElementById("authPage");
+const dashboard = document.getElementById("dashboard");
+const userDisplay = document.getElementById("userDisplay");
+const logoutBtn = document.getElementById("logoutBtn");
+
+// Forms
+const loginForm = document.getElementById("loginForm");
+const signUpForm = document.getElementById("signUpForm");
+const confirmForm = document.getElementById("confirmForm");
+
+// Form Containers
+const loginFormContainer = document.getElementById("loginFormContainer");
+const signUpFormContainer = document.getElementById("signUpFormContainer");
+const confirmModal = document.getElementById("confirmModal");
+
+// Buttons
+const showSignUpBtn = document.getElementById("showSignUpBtn");
+const showLoginBtn = document.getElementById("showLoginBtn");
+const resendCodeBtn = document.getElementById("resendCodeBtn");
+
+// Form Toggles
+showSignUpBtn.addEventListener("click", () => {
+    loginFormContainer.classList.add("hidden");
+    signUpFormContainer.classList.remove("hidden");
 });
 
-function initializeEventListeners() {
-    // Password visibility toggle
-    document.getElementById('togglePassword').addEventListener('click', togglePasswordVisibility);
-    
-    // Login functionality
-    loginForm.addEventListener('submit', handleLogin);
-    
-    // Logout functionality
-    logoutBtn.addEventListener('click', handleLogout);
-    
-    // Navigation
-    document.querySelectorAll('.nav-btn').forEach(btn => {
-        btn.addEventListener('click', handleNavigation);
-    });
-    
-    // Modal event listeners
-    setupModalEventListeners();
-    
-    // Form event listeners
-    setupFormEventListeners();
-}
+showLoginBtn.addEventListener("click", () => {
+    signUpFormContainer.classList.add("hidden");
+    loginFormContainer.classList.remove("hidden");
+});
 
-function togglePasswordVisibility() {
-    const passwordInput = document.getElementById('password');
-    const eyeIcon = document.getElementById('eyeIcon');
-    const eyeOffIcon = document.getElementById('eyeOffIcon');
-    
-    if (passwordInput.type === 'password') {
-        passwordInput.type = 'text';
-        eyeIcon.classList.add('hidden');
-        eyeOffIcon.classList.remove('hidden');
-    } else {
-        passwordInput.type = 'password';
-        eyeIcon.classList.remove('hidden');
-        eyeOffIcon.classList.add('hidden');
-    }
-}
-
-function handleLogin(e) {
+// --- 1. Sign Up ---
+signUpForm.addEventListener("submit", (e) => {
     e.preventDefault();
-    const username = document.getElementById('username').value;
-    const password = document.getElementById('password').value;
-    
-    if (username && password) {
-        userDisplay.textContent = username;
-        loginPage.classList.add('hidden');
-        dashboard.classList.remove('hidden');
-        loadInventory();
-        loadOrders();
-        updateReports();
-        showNotification(`Welcome back, ${username}!`);
-    }
-}
+    const email = document.getElementById("signUpEmail").value;
+    const password = document.getElementById("signUpPassword").value;
 
-function handleLogout() {
-    dashboard.classList.add('hidden');
-    loginPage.classList.remove('hidden');
-    loginForm.reset();
-    
-    // Reset password visibility
-    const passwordInput = document.getElementById('password');
-    const eyeIcon = document.getElementById('eyeIcon');
-    const eyeOffIcon = document.getElementById('eyeOffIcon');
-    passwordInput.type = 'password';
-    eyeIcon.classList.remove('hidden');
-    eyeOffIcon.classList.add('hidden');
-    
-    showNotification('Logged out successfully');
-}
+    const attributeList = [
+        new AmazonCognitoIdentity.CognitoUserAttribute({
+            Name: 'email',
+            Value: email,
+        })
+    ];
 
-function handleNavigation() {
-    const section = this.dataset.section;
-    
-    // Update active nav
-    document.querySelectorAll('.nav-btn').forEach(b => {
-        b.classList.remove('text-white', 'border-b-2', 'border-blue-500');
-        b.classList.add('text-gray-300');
-    });
-    this.classList.add('text-white', 'border-b-2', 'border-blue-500');
-    this.classList.remove('text-gray-300');
-    
-    // Show section
-    document.querySelectorAll('.section').forEach(s => s.classList.add('hidden'));
-    document.getElementById(section + 'Section').classList.remove('hidden');
-}
+    showNotification("Signing you up...", false);
 
-function setupModalEventListeners() {
-    // Add item modal
-    document.getElementById('addItemBtn').addEventListener('click', () => {
-        document.getElementById('addItemModal').classList.remove('hidden');
-    });
-    
-    document.getElementById('cancelAddItem').addEventListener('click', () => {
-        document.getElementById('addItemModal').classList.add('hidden');
-        document.getElementById('addItemForm').reset();
-    });
-    
-    // Edit item modal
-    document.getElementById('cancelEditItem').addEventListener('click', () => {
-        document.getElementById('editItemModal').classList.add('hidden');
-        document.getElementById('editItemForm').reset();
-    });
-    
-    // Order modals
-    document.getElementById('closeViewOrder').addEventListener('click', () => {
-        document.getElementById('viewOrderModal').classList.add('hidden');
-    });
-    
-    document.getElementById('cancelUpdateOrder').addEventListener('click', () => {
-        document.getElementById('updateOrderModal').classList.add('hidden');
-        document.getElementById('updateOrderForm').reset();
-    });
-    
-    // Items list modal
-    document.getElementById('closeItemsList').addEventListener('click', () => {
-        document.getElementById('itemsListModal').classList.add('hidden');
-    });
-    
-    // Create order button
-    document.getElementById('createOrderBtn').addEventListener('click', function() {
-        showNotification('Create order functionality would integrate with AWS API here');
-    });
-}
-
-function setupFormEventListeners() {
-    // Add item form
-    document.getElementById('addItemForm').addEventListener('submit', handleAddItem);
-    
-    // Edit item form
-    document.getElementById('editItemForm').addEventListener('submit', handleEditItem);
-    
-    // Update order form
-    document.getElementById('updateOrderForm').addEventListener('submit', handleUpdateOrder);
-}
-
-function handleAddItem(e) {
-    e.preventDefault();
-    
-    const newItem = {
-        id: Math.max(...inventory.map(i => i.id)) + 1,
-        name: document.getElementById('itemName').value,
-        sku: document.getElementById('itemSku').value,
-        quantity: parseInt(document.getElementById('itemQuantity').value),
-        location: document.getElementById('itemLocation').value
-    };
-    
-    inventory.push(newItem);
-    loadInventory();
-    updateReports();
-    document.getElementById('addItemModal').classList.add('hidden');
-    document.getElementById('addItemForm').reset();
-    showNotification(`${newItem.name} added successfully`);
-}
-
-function handleEditItem(e) {
-    e.preventDefault();
-    
-    const itemId = parseInt(document.getElementById('editItemId').value);
-    const itemIndex = inventory.findIndex(item => item.id === itemId);
-    
-    if (itemIndex !== -1) {
-        const updatedItem = {
-            id: itemId,
-            name: document.getElementById('editItemName').value,
-            sku: document.getElementById('editItemSku').value,
-            quantity: parseInt(document.getElementById('editItemQuantity').value),
-            location: document.getElementById('editItemLocation').value
-        };
-        
-        inventory[itemIndex] = updatedItem;
-        loadInventory();
-        updateReports();
-        document.getElementById('editItemModal').classList.add('hidden');
-        document.getElementById('editItemForm').reset();
-        showNotification(`${updatedItem.name} updated successfully`);
-    }
-}
-
-function handleUpdateOrder(e) {
-    e.preventDefault();
-    
-    const orderId = document.getElementById('updateOrderId').value;
-    const orderIndex = orders.findIndex(order => order.id === orderId);
-    
-    if (orderIndex !== -1) {
-        orders[orderIndex].customer = document.getElementById('updateOrderCustomer').value;
-        orders[orderIndex].status = document.getElementById('updateOrderStatus').value;
-        
-        loadOrders();
-        updateReports();
-        document.getElementById('updateOrderModal').classList.add('hidden');
-        document.getElementById('updateOrderForm').reset();
-        showNotification(`Order ${orderId} updated successfully`);
-    }
-}
-
-// Load inventory table
-function loadInventory() {
-    const tbody = document.getElementById('inventoryTable');
-    tbody.innerHTML = '';
-    
-    inventory.forEach(item => {
-        const row = document.createElement('tr');
-        const quantityClass = item.quantity < 10 ? 'text-red-600 font-semibold' : 'text-gray-500';
-        
-        row.innerHTML = `
-            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${item.name}</td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${item.sku}</td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm ${quantityClass}">${item.quantity}</td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${item.location}</td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                <button class="text-blue-600 hover:text-blue-900 mr-3" onclick="editItem(${item.id})">Edit</button>
-                <button class="text-red-600 hover:text-red-900" onclick="deleteItem(${item.id})">Delete</button>
-            </td>
-        `;
-        tbody.appendChild(row);
-    });
-}
-
-// Load orders table
-function loadOrders() {
-    const tbody = document.getElementById('ordersTable');
-    tbody.innerHTML = '';
-    
-    orders.forEach(order => {
-        const row = document.createElement('tr');
-        const statusClass = getStatusClass(order.status);
-        
-        row.innerHTML = `
-            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${order.id}</td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${order.customer}</td>
-            <td class="px-6 py-4 whitespace-nowrap">
-                <span class="${statusClass}">${order.status}</span>
-            </td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${order.date}</td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                <button class="text-blue-600 hover:text-blue-900 mr-3" onclick="viewOrder('${order.id}')">View</button>
-                <button class="text-green-600 hover:text-green-900" onclick="updateOrder('${order.id}')">Update</button>
-            </td>
-        `;
-        tbody.appendChild(row);
-    });
-}
-
-function getStatusClass(status) {
-    const statusClasses = {
-        'Pending': 'status-pending',
-        'Processing': 'status-processing',
-        'Shipped': 'status-shipped',
-        'Delivered': 'status-delivered',
-        'Cancelled': 'status-cancelled'
-    };
-    return statusClasses[status] || 'status-pending';
-}
-
-// Update reports
-function updateReports() {
-    document.getElementById('totalItems').textContent = inventory.length;
-    document.getElementById('pendingOrders').textContent = orders.filter(o => o.status === 'Pending').length;
-    document.getElementById('lowStockItems').textContent = inventory.filter(i => i.quantity < 10).length;
-}
-
-// Item management functions
-function editItem(id) {
-    const item = inventory.find(i => i.id === id);
-    if (item) {
-        document.getElementById('editItemId').value = item.id;
-        document.getElementById('editItemName').value = item.name;
-        document.getElementById('editItemSku').value = item.sku;
-        document.getElementById('editItemQuantity').value = item.quantity;
-        document.getElementById('editItemLocation').value = item.location;
-        
-        document.getElementById('editItemModal').classList.remove('hidden');
-    }
-}
-
-function deleteItem(id) {
-    const item = inventory.find(i => i.id === id);
-    if (item) {
-        // Create inline confirmation
-        const confirmDiv = document.createElement('div');
-        confirmDiv.className = 'fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4';
-        confirmDiv.innerHTML = `
-            <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-                <h3 class="text-lg font-medium text-gray-900 mb-4">Confirm Delete</h3>
-                <p class="text-sm text-gray-600 mb-6">Are you sure you want to delete "${item.name}"? This action cannot be undone.</p>
-                <div class="flex justify-end space-x-3">
-                    <button id="cancelDelete" class="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-200 hover:bg-gray-300 rounded-md">
-                        Cancel
-                    </button>
-                    <button id="confirmDelete" class="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-md">
-                        Delete
-                    </button>
-                </div>
-            </div>
-        `;
-        
-        document.body.appendChild(confirmDiv);
-        
-        document.getElementById('cancelDelete').addEventListener('click', () => {
-            document.body.removeChild(confirmDiv);
-        });
-        
-        document.getElementById('confirmDelete').addEventListener('click', () => {
-            inventory = inventory.filter(i => i.id !== id);
-            loadInventory();
-            updateReports();
-            document.body.removeChild(confirmDiv);
-            showNotification(`${item.name} has been deleted`);
-        });
-    }
-}
-
-// Order management functions
-function viewOrder(orderId) {
-    const order = orders.find(o => o.id === orderId);
-    if (order) {
-        document.getElementById('viewOrderId').textContent = order.id;
-        document.getElementById('viewOrderCustomer').textContent = order.customer;
-        document.getElementById('viewOrderStatus').textContent = order.status;
-        document.getElementById('viewOrderDate').textContent = order.date;
-        
-        const itemsDiv = document.getElementById('viewOrderItems');
-        itemsDiv.innerHTML = order.items.map(item => `<div class="py-1">${item}</div>`).join('');
-        
-        document.getElementById('viewOrderModal').classList.remove('hidden');
-    }
-}
-
-function updateOrder(orderId) {
-    const order = orders.find(o => o.id === orderId);
-    if (order) {
-        document.getElementById('updateOrderId').value = order.id;
-        document.getElementById('updateOrderCustomer').value = order.customer;
-        document.getElementById('updateOrderStatus').value = order.status;
-        
-        document.getElementById('updateOrderModal').classList.remove('hidden');
-    }
-}
-
-// Report functions
-function showAllItems() {
-    showItemsList('All Items', inventory);
-}
-
-function showPendingOrders() {
-    const pendingOrdersList = orders.filter(o => o.status === 'Pending');
-    document.getElementById('itemsListTitle').textContent = 'Pending Orders';
-    
-    const tbody = document.getElementById('itemsListTable');
-    tbody.innerHTML = '';
-    
-    // Update table headers for orders
-    const thead = tbody.parentElement.querySelector('thead tr');
-    thead.innerHTML = `
-        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Order ID</th>
-        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Customer</th>
-        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-    `;
-    
-    pendingOrdersList.forEach(order => {
-        const row = document.createElement('tr');
-        row.innerHTML = `
-            <td class="px-4 py-2 text-sm text-gray-900">${order.id}</td>
-            <td class="px-4 py-2 text-sm text-gray-500">${order.customer}</td>
-            <td class="px-4 py-2 text-sm"><span class="status-pending">${order.status}</span></td>
-            <td class="px-4 py-2 text-sm text-gray-500">${order.date}</td>
-        `;
-        tbody.appendChild(row);
-    });
-    
-    document.getElementById('itemsListModal').classList.remove('hidden');
-}
-
-function showLowStockItems() {
-    const lowStockItems = inventory.filter(i => i.quantity < 10);
-    showItemsList('Low Stock Items (< 10)', lowStockItems);
-}
-
-function showItemsList(title, items) {
-    document.getElementById('itemsListTitle').textContent = title;
-    
-    // Reset table headers for items
-    const thead = document.querySelector('#itemsListModal thead tr');
-    thead.innerHTML = `
-        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Item Name</th>
-        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">SKU</th>
-        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Quantity</th>
-        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Location</th>
-    `;
-    
-    const tbody = document.getElementById('itemsListTable');
-    tbody.innerHTML = '';
-    
-    items.forEach(item => {
-        const row = document.createElement('tr');
-        const quantityClass = item.quantity < 10 ? 'text-red-600 font-semibold' : 'text-gray-500';
-        row.innerHTML = `
-            <td class="px-4 py-2 text-sm text-gray-900">${item.name}</td>
-            <td class="px-4 py-2 text-sm text-gray-500">${item.sku}</td>
-            <td class="px-4 py-2 text-sm ${quantityClass}">${item.quantity}</td>
-            <td class="px-4 py-2 text-sm text-gray-500">${item.location}</td>
-        `;
-        tbody.appendChild(row);
-    });
-    
-    document.getElementById('itemsListModal').classList.remove('hidden');
-}
-
-// Notification system
-function showNotification(message, type = 'info') {
-    const notification = document.createElement('div');
-    const bgColor = type === 'error' ? 'bg-red-600' : type === 'success' ? 'bg-green-600' : 'bg-blue-600';
-    
-    notification.className = `notification fixed top-4 right-4 ${bgColor} text-white px-6 py-3 rounded-lg shadow-lg z-50`;
-    notification.textContent = message;
-    
-    document.body.appendChild(notification);
-    
-    setTimeout(() => {
-        if (notification.parentNode) {
-            notification.remove();
+    userPool.signUp(email, password, attributeList, null, (err, result) => {
+        if (err) {
+            showNotification(err.message || JSON.stringify(err), true);
+            return;
         }
-    }, 3000);
-}
-
-// Utility functions
-function formatDate(date) {
-    return new Date(date).toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric'
+        cognitoUser = result.user;
+        document.getElementById("confirmEmailDisplay").textContent = email;
+        signUpFormContainer.classList.add("hidden");
+        authPage.classList.add("hidden"); 
+        confirmModal.classList.remove("hidden"); 
+        showNotification("Sign up successful! Please check your email for a confirmation code.", false);
     });
+});
+
+// --- 2. Confirm Sign Up ---
+confirmForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const code = document.getElementById("confirmationCode").value;
+
+    cognitoUser.confirmRegistration(code, true, (err, result) => {
+        if (err) {
+            showNotification(err.message || JSON.stringify(err), true);
+            return;
+        }
+        showNotification("Account confirmed! You can now sign in.", false);
+        confirmModal.classList.add("hidden");
+        authPage.classList.remove("hidden"); 
+        loginFormContainer.classList.remove("hidden"); 
+        signUpForm.reset();
+        confirmForm.reset();
+    });
+});
+
+// --- 3. Resend Code ---
+resendCodeBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (!cognitoUser) {
+        showNotification("No user found to resend code to. Please try signing up again.", true);
+        return;
+    }
+    cognitoUser.resendConfirmationCode((err, result) => {
+        if (err) {
+            showNotification(err.message || JSON.stringify(err), true);
+            return;
+        }
+        showNotification("A new code has been sent to your email.", false);
+    });
+});
+
+// --- 4. Sign In ---
+loginForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const email = document.getElementById("loginEmail").value;
+    const password = document.getElementById("loginPassword").value;
+
+    const authenticationDetails = new AmazonCognitoIdentity.AuthenticationDetails({
+        Username: email,
+        Password: password,
+    });
+
+    cognitoUser = new AmazonCognitoIdentity.CognitoUser({
+        Username: email,
+        Pool: userPool,
+    });
+
+    showNotification("Signing you in...", false);
+
+    cognitoUser.authenticateUser(authenticationDetails, {
+        onSuccess: async (result) => {
+            userToken = result.getIdToken().getJwtToken(); 
+            userDisplay.textContent = email; 
+            authPage.classList.add("hidden");
+            dashboard.classList.remove("hidden");
+            try {
+                await loadInventory();
+            } catch (error) {
+                showNotification(error.message, true);
+            }
+        },
+        onFailure: (err) => {
+            showNotification(err.message || JSON.stringify(err), true);
+        },
+    });
+});
+
+// --- 5. Logout ---
+logoutBtn.addEventListener("click", () => {
+    if (cognitoUser) {
+        cognitoUser.signOut();
+    }
+    cognitoUser = null;
+    userToken = null;
+    allInventoryItems = []; // ⭐ NEW: Clear master list on logout
+    searchInput.value = ""; // ⭐ NEW: Clear search input on logout
+
+    dashboard.classList.add("hidden");
+    authPage.classList.remove("hidden");
+    loginFormContainer.classList.remove("hidden"); 
+    signUpFormContainer.classList.add("hidden"); 
+    confirmModal.classList.add("hidden"); 
+
+    loginForm.reset();
+    signUpForm.reset();
+    confirmForm.reset();
+});
+
+// ============================
+// NAVIGATION HANDLING
+// ============================
+document.querySelectorAll(".nav-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+        document.querySelectorAll(".section").forEach((sec) => sec.classList.add("hidden"));
+        document.querySelectorAll(".nav-btn").forEach((b) =>
+            b.classList.remove("border-blue-500", "text-white")
+        );
+        const target = btn.dataset.section;
+        document.getElementById(target + "Section").classList.remove("hidden");
+        btn.classList.add("border-blue-500", "text-white");
+    });
+});
+
+// ============================
+// INVENTORY CRUD OPERATIONS
+// ============================
+const inventoryTable = document.getElementById("inventoryTable");
+const addItemBtn = document.getElementById("addItemBtn");
+const addItemModal = document.getElementById("addItemModal");
+const addItemForm = document.getElementById("addItemForm");
+const cancelAddItem = document.getElementById("cancelAddItem");
+const editItemModal = document.getElementById("editItemModal");
+const editItemForm = document.getElementById("editItemForm");
+const cancelEditItem = document.getElementById("cancelEditItem");
+
+// ⭐ NEW: Search Input
+const searchInput = document.getElementById("searchInput");
+
+addItemBtn.addEventListener("click", () => addItemModal.classList.remove("hidden"));
+cancelAddItem.addEventListener("click", () => {
+    addItemModal.classList.add("hidden");
+    addItemForm.reset();
+});
+cancelEditItem.addEventListener("click", () => {
+    editItemModal.classList.add("hidden");
+    editItemForm.reset();
+});
+
+// ⭐ NEW: Add event listener for the search bar
+searchInput.addEventListener("input", renderFilteredInventory);
+
+// Load Inventory Items
+async function loadInventory(returnItems = false) {
+    if (API_BASE === "PASTE_YOUR_AWS_API_URL_HERE") {
+        const msg = "AWS API_BASE URL is not set in app.js";
+        if (!returnItems) showNotification(msg, true);
+        renderInventoryTable([]);
+        if (returnItems) throw new Error(msg);
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE}/items`, {
+            headers: {
+                'Authorization': `Bearer ${userToken}`
+            }
+        }); 
+        if (!response.ok) {
+            if (response.status === 401 || response.status === 403) {
+                showNotification("Session expired. Please log in again.", true);
+                logoutBtn.click();
+            }
+            throw new Error(`Failed to fetch inventory: ${response.statusText}`);
+        }
+        const items = await response.json();
+        
+        // ⭐ NEW: Store the full list in our master variable
+        allInventoryItems = items;
+        
+        if (returnItems) return items;
+        
+        // ⭐ NEW: Render the table based on the (possibly filtered) search
+        renderFilteredInventory();
+        updateReportCards(items); // Update report cards with the full list
+    } catch (error) {
+        console.error("Error loading inventory:", error);
+        if (!returnItems) showNotification(error.message, true);
+        renderInventoryTable([]);
+        if (returnItems) throw error;
+    }
 }
 
-function generateOrderId() {
-    const prefix = 'ORD';
-    const number = String(orders.length + 1).padStart(3, '0');
-    return prefix + number;
+// ⭐ NEW: Function to render the table based on search
+function renderFilteredInventory() {
+    const searchTerm = searchInput.value.toLowerCase();
+    
+    // If search is empty, render the full list
+    if (!searchTerm) {
+        renderInventoryTable(allInventoryItems);
+        return;
+    }
+    
+    // Otherwise, filter the list
+    const filteredItems = allInventoryItems.filter(item => 
+        (item.itemName && item.itemName.toLowerCase().includes(searchTerm)) || 
+        (item.sku && item.sku.toLowerCase().includes(searchTerm))
+    );
+    
+    renderInventoryTable(filteredItems);
 }
 
-// Export functions for global access (needed for onclick handlers)
-window.editItem = editItem;
-window.deleteItem = deleteItem;
-window.viewOrder = viewOrder;
-window.updateOrder = updateOrder;
-window.showAllItems = showAllItems;
-window.showPendingOrders = showPendingOrders;
-window.showLowStockItems = showLowStockItems;
+
+// Render inventory data into table
+function renderInventoryTable(items) {
+    inventoryTable.innerHTML = "";
+    if (!Array.isArray(items) || items.length === 0) {
+        inventoryTable.innerHTML = `<tr><td colspan="5" class="text-center py-4 text-gray-500">No items found.</td></tr>`;
+        return;
+    }
+    items.forEach((item) => {
+        const row = document.createElement("tr");
+        row.innerHTML = `
+            <td class="px-6 py-4 whitespace-nowrap">${item.itemName}</td>
+            <td class="px-6 py-4 whitespace-nowrap">${item.sku}</td>
+            <td class="px-6 py-4 whitespace-nowrap">${item.quantity}</td>
+            <td class="px-6 py-4 whitespace-nowrap">${item.location}</td>
+            <td class="px-6 py-4 whitespace-nowrap space-x-2 text-sm">
+                <button class="text-blue-600 hover:text-blue-800 edit-btn" data-id="${item.itemId}">Edit</button>
+                <button class="text-red-600 hover:text-red-800 delete-btn" data-id="${item.itemId}">Delete</button>
+            </td>`;
+        inventoryTable.appendChild(row);
+    });
+    document.querySelectorAll(".edit-btn").forEach((btn) =>
+        btn.addEventListener("click", () => openEditModal(btn.dataset.id))
+    );
+    document.querySelectorAll(".delete-btn").forEach((btn) =>
+        btn.addEventListener("click", () => deleteItem(btn.dataset.id))
+    );
+}
+
+// Add new item
+addItemForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const item = {
+        itemName: document.getElementById("itemName").value,
+        sku: document.getElementById("itemSku").value,
+        quantity: Number(document.getElementById("itemQuantity").value),
+        location: document.getElementById("itemLocation").value,
+    };
+
+    try {
+        const res = await fetch(`${API_BASE}/items`, {
+            method: "POST",
+            headers: { 
+                "Content-Type": "application/json",
+                'Authorization': `Bearer ${userToken}`
+            },
+            body: JSON.stringify(item),
+        });
+        if (!res.ok) throw new Error(`Failed to add item: ${res.statusText}`);
+        showNotification("Item added successfully!", false);
+        addItemModal.classList.add("hidden");
+        addItemForm.reset();
+        await loadInventory(); // This will reload the full list and re-apply the filter
+    } catch (err) {
+        console.error(err);
+        showNotification(err.message, true);
+    }
+});
+
+// Edit item - open modal
+async function openEditModal(itemId) {
+    if (API_BASE === "PASTE_YOUR_AWS_API_URL_HERE") {
+        showNotification("AWS API_BASE URL is not set in app.js", true);
+        return;
+    }
+    try {
+        const res = await fetch(`${API_BASE}/items/${itemId}`, {
+            headers: {
+                'Authorization': `Bearer ${userToken}`
+            }
+        });
+        if (!res.ok) throw new Error(`Failed to fetch item: ${res.statusText}`);
+        const item = await res.json();
+        document.getElementById("editItemId").value = item.itemId;
+        document.getElementById("editItemName").value = item.itemName;
+        document.getElementById("editItemSku").value = item.sku;
+        document.getElementById("editItemQuantity").value = item.quantity;
+        document.getElementById("editItemLocation").value = item.location;
+        editItemModal.classList.remove("hidden");
+    } catch (err) {
+        console.error(err);
+        showNotification(err.message, true);
+    }
+}
+
+// Update item
+editItemForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const itemId = document.getElementById("editItemId").value;
+    const updatedItem = {
+        itemName: document.getElementById("editItemName").value,
+        sku: document.getElementById("editItemSku").value,
+        quantity: Number(document.getElementById("editItemQuantity").value),
+        location: document.getElementById("editItemLocation").value,
+    };
+
+    try {
+        const res = await fetch(`${API_BASE}/items/${itemId}`, {
+            method: "PUT",
+            headers: { 
+                "Content-Type": "application/json",
+                'Authorization': `Bearer ${userToken}`
+            },
+            body: JSON.stringify(updatedItem),
+        });
+        if (!res.ok) throw new Error(`Failed to update item: ${res.statusText}`);
+        showNotification("Item updated. Refreshing list...", false);
+        editItemModal.classList.add("hidden");
+        await loadInventory(); // This will reload the full list and re-apply the filter
+    } catch (err) {
+        console.error(err);
+        showNotification(err.message, true);
+    }
+});
+
+// Delete item
+async function deleteItem(itemId) {
+    try {
+        const res = await fetch(`${API_BASE}/items/${itemId}`, { 
+            method: "DELETE",
+            headers: {
+                'Authorization': `Bearer ${userToken}`
+            }
+        });
+        if (!res.ok) throw new Error(`Failed to delete item: ${res.statusText}`);
+        showNotification("Item deleted successfully!", false);
+        await loadInventory(); // This will reload the full list and re-apply the filter
+    } catch (err) {
+        console.error(err);
+        showNotification(err.message, true);
+    }
+}
+
+// ============================
+// REPORTS
+// ============================
+function updateReportCards(items) {
+    const lowStockItems = items.filter(item => item.quantity < 10);
+    document.getElementById("totalItems").textContent = items.length;
+    document.getElementById("lowStockItems").textContent = lowStockItems.length;
+    document.getElementById("pendingOrders").textContent = 0; // Placeholder
+}
+
+function showAllItems() {
+    document.querySelector('.nav-btn[data-section="inventory"]').click();
+}
+function showPendingOrders() {
+    showNotification("Order data is not connected (demo)", false);
+}
+function showLowStockItems() {
+    showNotification("Report: Low stock items (demo)", false);
+}
+
+
+// ============================
+// ✨ NEW GEMINI AI FEATURE
+// ============================
+const generateReportBtn = document.getElementById("generateReportBtn");
+const geminiReportModal = document.getElementById("geminiReportModal");
+const closeGeminiReport = document.getElementById("closeGeminiReport");
+const geminiLoading = document.getElementById("geminiLoading");
+const geminiReportContent = document.getElementById("geminiReportContent");
+
+generateReportBtn.addEventListener("click", generateLowStockReport);
+closeGeminiReport.addEventListener("click", () => {
+    geminiReportModal.classList.add("hidden");
+    geminiReportContent.innerHTML = "";
+});
+
+async function generateLowStockReport() {
+    if (GEMINI_API_KEY === "PASTE_YOUR_GEMINI_API_KEY_HERE") {
+        showNotification("GEMINI_API_KEY is not set in app.js", true);
+        return;
+    }
+
+    geminiReportModal.classList.remove("hidden");
+    geminiLoading.classList.remove("hidden");
+    geminiReportContent.innerHTML = "";
+
+    try {
+        const items = await loadInventory(true);
+        if (!items) return; 
+
+        const lowStockItems = items.filter(item => item.quantity < 10);
+        if (lowStockItems.length === 0) {
+            geminiReportContent.innerHTML = "<p>No low stock items found. Great job!</p>";
+            geminiLoading.classList.add("hidden");
+            return;
+        }
+
+        let promptText = "You are a professional warehouse operations manager. The following items in my inventory are running low on stock:\n\n";
+        lowStockItems.forEach(item => {
+            promptText += `- Item: ${item.itemName}, SKU: ${item.sku}, Quantity: ${item.quantity}, Location: ${item.location}\n`;
+        });
+        promptText += "\nPlease write a brief, prioritized re-ordering report. Start with the most critical items (lowest quantity) first. Format it as a simple bulleted list with a brief summary and professional tone.";
+
+        const aiResponse = await callGemini(promptText);
+        
+        let htmlResponse = aiResponse
+            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+            .replace(/•/g, '<li>')
+            .replace(/\n/g, '<br>');
+        htmlResponse = htmlResponse.replace(/<li>/g, '<ul class="list-disc pl-5"><li>');
+        htmlResponse = htmlResponse.replace(/<br><ul/g, '<ul');
+        htmlResponse = htmlResponse.replace(/<\/li><br>/g, '</li>');
+        htmlResponse = htmlResponse.replace(/<\/li><br><br>/g, '</li></ul><br>');
+        
+        geminiReportContent.innerHTML = htmlResponse;
+
+    } catch (error) {
+        console.error("Error generating AI report:", error);
+        geminiReportContent.innerHTML = `<p class="text-red-500">Error generating report: ${error.message}</p>`;
+    } finally {
+        geminiLoading.classList.add("hidden");
+    }
+}
+
+async function callGemini(promptText) {
+    const payload = {
+        contents: [{
+            parts: [{ text: promptText }]
+        }]
+    };
+
+    let attempt = 0;
+    const maxAttempts = 3;
+    while (attempt < maxAttempts) {
+        try {
+            const response = await fetch(GEMINI_API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (response.ok) {
+                const result = await response.json();
+                if (result.candidates && result.candidates[0]?.content?.parts[0]?.text) {
+                    return result.candidates[0].content.parts[0].text;
+                } else {
+                    throw new Error("Invalid response structure from Gemini API.");
+                }
+            } else if (response.status === 429 || response.status >= 500) {
+                const delay = Math.pow(2, attempt) * 1000 + Math.random() * 1000;
+                await new Promise(resolve => setTimeout(resolve, delay));
+                attempt++;
+            } else {
+                const errorBody = await response.text();
+                throw new Error(`Gemini API error: ${response.status} ${errorBody}`);
+            }
+        } catch (error) {
+            const delay = Math.pow(2, attempt) * 1000 + Math.random() * 1000;
+            await new Promise(resolve => setTimeout(resolve, delay));
+            attempt++;
+        }
+    }
+    throw new Error("Failed to call Gemini API after several attempts.");
+}
+
+
+// ============================
+// PASSWORD TOGGLE
+// ============================
+const togglePassword = document.getElementById("togglePassword");
+const password = document.getElementById("loginPassword"); // Corrected to loginPassword
+const eyeIcon = document.getElementById("eyeIcon");
+const eyeOffIcon = document.getElementById("eyeOffIcon");
+
+togglePassword.addEventListener("click", () => {
+    const type = password.getAttribute("type") === "password" ? "text" : "password";
+    password.setAttribute("type", type);
+    eyeIcon.classList.toggle("hidden");
+    eyeOffIcon.classList.toggle("hidden");
+});
+
